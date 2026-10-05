@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Family editor</title>
+<style>
+:root{--bg:#f2f5f3;--ink:#1d2b27;--card:#fff;--ac:#1f4d45;--soft:#dde8e3}
+@media(prefers-color-scheme:dark){:root{--bg:#141c1a;--ink:#e8f0ed;--card:#1e2927;--ac:#7fc4b4;--soft:#2b3a37}}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.5 Charter,Georgia,serif}
+header{background:var(--card);border-bottom:4px solid var(--ac);padding:.7rem 1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap}
+h1{font-size:1.4rem;margin:0;flex:1;color:var(--ac)}h2{margin:.2rem 0 .6rem}a{color:var(--ac)}
+main{max-width:760px;margin:0 auto;padding:0 1rem 3rem}.box{background:var(--card);border-radius:.6rem;padding:1rem;margin:.8rem 0}
+label{display:block;margin:.5rem 0}input,select,button{font:inherit;padding:.45rem .7rem;border-radius:.4rem;border:2px solid var(--soft);background:var(--card);color:var(--ink);max-width:100%;box-sizing:border-box}
+label input,label select{display:block;width:100%}button{background:var(--soft);border:0;cursor:pointer}button.on{background:var(--ac);color:var(--bg)}
+.row{display:flex;gap:.6rem;align-items:center;justify-content:space-between;padding:.25rem 0;border-bottom:1px solid var(--soft)}
+</style></head><body>
+<header><h1>Family editor</h1><a href="index.html">‹ Back to the family site</a></header>
+<main>
+<div id="login" class="box" hidden><p>Sign in with the Google account that has editing access.</p><button id="in" class="on">Sign in with Google</button></div>
+<div id="app" hidden>
+<div class="box"><p id="cnt"></p><label>Who do you want to edit?<select id="sel" onchange="show()"></select></label><button onclick="addPerson()">Add a new person</button></div>
+<div id="ed"></div></div>
+</main>
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import{getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import{getFirestore,collection,getDocs,getDoc,doc,setDoc,updateDoc,addDoc,deleteDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+const cfg={apiKey:"AIzaSyC2Bs7mN-7yQfB5w585tDWHmqZtuIIwKUY",authDomain:"family-tree-559cc.firebaseapp.com",projectId:"family-tree-559cc",appId:"1:333199165724:web:a959cfcdbce11d1dc6d2d9"};
+const auth=getAuth(initializeApp(cfg)),db=getFirestore(),$=s=>document.querySelector(s);
+let P={},L=[],M=[],cur=0;
+const byA=(x,y)=>(P[x].birth||"9999").localeCompare(P[y].birth||"9999")||x-y;
+const e=s=>String(s??"").replace(/[&<>"]/g,c=>"&#"+c.charCodeAt(0)+";");
+const nm=p=>e(p.first+" "+p.last),sorted=()=>Object.values(P).sort((a,b)=>(a.last+a.first).localeCompare(b.last+b.first));
+$("#in").onclick=()=>signInWithPopup(auth,new GoogleAuthProvider());
+onAuthStateChanged(auth,async u=>{$("#login").hidden=!!u;if(!u)return;
+ try{const r=(await getDoc(doc(db,"allowed",u.email))).data()?.role;
+  if(r!="admin"&&r!="editor")throw 0;$("#app").hidden=false;await load()}
+ catch{$("#login").hidden=false;$("#login").innerHTML=`<p>${e(u.email)} doesn't have editing access.</p>`}});
+async function load(){const g=async n=>(await getDocs(collection(db,n))).docs.map(d=>({...d.data(),_id:d.id}));
+ const[p,l,m]=await Promise.all([g("people"),g("links"),g("marriages")]);P={};p.forEach(x=>P[x.id]=x);L=l;M=m;
+ $("#cnt").textContent=`Loaded ${p.length} people, ${l.length} parent links, ${m.length} marriages.`;
+ $("#sel").innerHTML=sorted().map(x=>`<option value="${x.id}">${nm(x)}</option>`).join("");
+ if(P[cur])$("#sel").value=cur;show()}
+const shrink=f=>new Promise(r=>{const i=new Image();i.onload=()=>{const s=Math.min(1,320/Math.max(i.width,i.height)),c=document.createElement("canvas");c.width=i.width*s;c.height=i.height*s;c.getContext("2d").drawImage(i,0,0,c.width,c.height);r(c.toDataURL("image/jpeg",.8))};i.src=URL.createObjectURL(f)});
+const rm=(c,i)=>`<button onclick="del('${c}','${i}')">Remove</button>`;
+function show(){const p=P[cur=+$("#sel").value];if(!p){$("#ed").innerHTML="";return}
+ const par=L.filter(l=>l.child==cur).sort((a,b)=>byA(a.parent,b.parent)),kid=L.filter(l=>l.parent==cur).sort((a,b)=>byA(a.child,b.child)),mar=M.filter(m=>m.p1==cur||m.p2==cur).sort((a,b)=>(a.date||"9999").localeCompare(b.date||"9999"));
+ $("#ed").innerHTML=`<div class="box"><h2>${nm(p)}</h2>
+ <label>First and middle names<input id="f" value="${e(p.first)}"></label>
+ <label>Last name<input id="l" value="${e(p.last)}"></label>
+ <label>Gender<select id="g"><option value="">Not sure</option><option ${p.gender=="Male"?"selected":""}>Male</option><option ${p.gender=="Female"?"selected":""}>Female</option></select></label>
+ <label>Birth date<input type="date" id="b" value="${e(p.birth)}"></label>
+ <label>Death date (leave empty if living)<input type="date" id="d" value="${e(p.death)}"></label>
+ <label>Photo<input type="file" id="ph" accept="image/*"></label>
+ <button class="on" onclick="save()">Save changes</button> <span id="msg"></span></div>
+ <div class="box"><h2>Relationships</h2>
+ ${par.map(l=>`<div class="row"><span>Parent: ${nm(P[l.parent])}</span>${rm("links",l._id)}</div>`).join("")}
+ ${kid.map(l=>`<div class="row"><span>Child: ${nm(P[l.child])}</span>${rm("links",l._id)}</div>`).join("")}
+ ${mar.map(m=>`<div class="row" style="flex-wrap:wrap"><span>Married: ${nm(P[m.p1==cur?m.p2:m.p1])} ${e(m.date)}${m.end?` · ended ${e(m.end)}`:""}</span><span>${m.end?`<button onclick="endM('${m._id}','')">Undo end</button>`:`<input type="date" id="e${m._id}"> <button onclick="endM('${m._id}')">Mark ended</button>`} ${rm("marriages",m._id)}</span></div>`).join("")}
+ <h3>Add a relationship</h3><label>Person<select id="who">${sorted().filter(x=>x.id!=cur).map(x=>`<option value="${x.id}">${nm(x)}</option>`).join("")}</select></label>
+ <label>Marriage date (only for spouses)<input type="date" id="md"></label>
+ <button onclick="rel('parent')">Add as parent</button> <button onclick="rel('child')">Add as child</button> <button onclick="rel('spouse')">Add as spouse</button></div>`}
+async function save(){const d={first:$("#f").value.trim(),last:$("#l").value.trim(),gender:$("#g").value,birth:$("#b").value,death:$("#d").value};
+ try{const f=$("#ph").files[0];if(f)d.photo=await shrink(f);await updateDoc(doc(db,"people",""+cur),d);await load();$("#msg").textContent="Saved."}
+ catch(x){$("#msg").textContent="Could not save: "+x.message}}
+async function addPerson(){const f=prompt("First and middle names?");if(!f)return;const l=prompt("Last name?")||"";
+ const id=Math.max(0,...Object.keys(P).map(Number))+1;await setDoc(doc(db,"people",""+id),{id,first:f.trim(),last:l.trim(),gender:"",birth:"",death:""});cur=id;await load()}
+async function rel(k){const w=+$("#who").value;if(!w)return;
+ if(k=="spouse"){if(M.some(m=>(m.p1==cur&&m.p2==w)||(m.p2==cur&&m.p1==w)))return alert("Already added.");await addDoc(collection(db,"marriages"),{p1:cur,p2:w,date:$("#md").value})}
+ else{const x=k=="parent"?{parent:w,child:cur}:{parent:cur,child:w};if(L.some(l=>l.parent==x.parent&&l.child==x.child))return alert("Already added.");await addDoc(collection(db,"links"),x)}
+ await load()}
+async function endM(i,v){if(v===undefined){v=$("#e"+i).value;if(!v)return alert("Pick the date the marriage ended.")}await updateDoc(doc(db,"marriages",i),{end:v});await load()}
+async function del(c,i){if(confirm("Remove this?")){await deleteDoc(doc(db,c,i));await load()}}
+Object.assign(window,{show,save,addPerson,rel,del,endM});
+</script></body></html>
